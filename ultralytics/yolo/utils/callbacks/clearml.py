@@ -56,6 +56,10 @@ def on_pretrain_routine_start(trainer):
                      output_uri=True,
                      reuse_last_task_id=False,
                      auto_connect_frameworks={'pytorch': False, 'matplotlib': False})
+        # Make sure the code is easily remotely runnable by setting the docker image to use by the remote agent
+    task.set_base_docker("ultralytics/ultralytics:latest",
+                         docker_arguments='--ipc=host -e="CLEARML_AGENT_SKIP_PYTHON_ENV_INSTALL=1"',
+                         docker_setup_bash_script='pip install clearml')
     task.connect(dict(trainer.args), name='General')
 
 
@@ -84,14 +88,23 @@ def on_train_end(trainer):
     [_log_plot(title=f.stem, plot_path=f) for f in files]
     # Report final metrics
     [Task.current_task().get_logger().report_single_value(k, v) for k, v in trainer.validator.metrics.results_dict.items()]
-    # Log the final model
-    Task.current_task().update_output_model(model_path=str(trainer.best),
-                                            model_name=trainer.args.name,
-                                            auto_delete_file=False)
+
+def on_model_save(trainer):
+    if trainer.epoch % trainer.args.save_interval == 0:
+        print("SAVING")
+        # Upload the model checkpoints under the appropriate name
+        Task.current_task().update_output_model(model_path=str(trainer.last),
+                                                model_name=f"last_{trainer.args.name}",
+                                                auto_delete_file=False)
+        # Task.current_task().update_output_model(model_path=str(trainer.best),
+        #                                         model_name=f"best_{trainer.args.name}",
+        #                                         auto_delete_file=False)
+
 
 
 callbacks = {
     "on_pretrain_routine_start": on_pretrain_routine_start,
+    "on_model_save": on_model_save,
     "on_train_epoch_end": on_train_epoch_end,
     "on_fit_epoch_end": on_fit_epoch_end,
     "on_val_end": on_val_end,
